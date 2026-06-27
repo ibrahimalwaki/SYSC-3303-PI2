@@ -1,62 +1,93 @@
-# Fire Incident Response System
+# Drone Fire Incident Response System
 
-A multi-subsystem fire incident response simulator built in Java for SYSC 3303 (Real-Time Concurrent Systems at Carleton University). The system dispatches autonomous drones to fire zones, tracks their state in real time, and handles hardware faults — all coordinated through concurrent message-passing over UDP.
+A distributed, real-time fire response simulator built across five iterative milestones for SYSC 3303 (Real-Time Concurrent Systems) at Carleton University. Three independent subsystems coordinate over UDP to dispatch autonomous drones to fire zones, track them through a live GUI, and recover from hardware faults mid-flight.
 
-## Architecture
+## System architecture
 
-Three independent subsystems communicate via UDP packets:
+Three JVM processes communicate exclusively through UDP — no shared memory, no direct method calls between subsystems.
 
 ```
 FireIncidentSubsystem  ──UDP──>  Scheduler  ──UDP──>  DroneSubsystem
        ↑                             |                      |
-  reads event CSV              manages zones           runs N drones
-                                    |                      |
-                               SchedulerGUI  <──── state updates
+  reads event CSV              manages zones           fleet of drones
+                                    ↓
+                               SchedulerGUI
+                         (live map + fault alerts)
 ```
 
-- **FireIncidentSubsystem** — reads fire events from a CSV file and dispatches them to the Scheduler.
-- **Scheduler** — assigns drones to zones, tracks progress, and drives the GUI.
-- **DroneSubsystem** — manages a pool of drones, each running its own state machine.
-- **SchedulerGUI** — live visualization of drone positions, zone status, and fault events.
+![Class Diagram](SYSC3303-Project-Group5/PI5ClassDiagram.png)
 
 ## Drone state machine
 
-Each drone moves through: `Idle → EnRoute → DroppingAgent → Returning → Idle`
+Each drone runs its own state machine. Transitions are driven by messages from the Scheduler and hardware fault signals.
 
-Fault conditions handled mid-flight:
-- **Stuck mid-flight** — drone stops moving and is timed out
-- **Nozzle jam** — agent cannot be released, drone returns for servicing
-- **Packet loss** — detected via sequence numbers; drone is reassigned
+![Drone State Machine](SYSC3303-Project-Group5/P4StateMachine_Drone.png)
+
+Normal flow: `Idle → EnRoute → DroppingAgent → Returning → Idle`
+
+## Fault handling
+
+Three fault types are detected and recovered from automatically:
+
+**Drone stuck mid-flight** — drone position stops updating; Scheduler detects timeout, marks the drone faulted, and reassigns the zone.
+
+![Stuck Fault](SYSC3303-Project-Group5/PI5DroneStuckFault.png)
+
+**Nozzle jam** — fire agent cannot be released; drone returns for servicing and the zone is re-queued.
+
+![Nozzle Jam](SYSC3303-Project-Group5/PI5ZNozzleJameedFault.png)
+
+**Packet loss** — UDP packets are tracked by sequence number; dropped packets trigger retransmission or drone reassignment.
+
+![Packet Loss](SYSC3303-Project-Group5/PI5PacketLoss.png)
 
 ## Running the simulation
 
-The three subsystems must be started in separate processes (different run configurations in IntelliJ):
+Each subsystem runs in a separate process. Start them in this order in IntelliJ (or separate terminals):
 
-1. Run `Main.java` — starts the Scheduler and GUI
-2. Run `DroneSubsystem.java` — starts the drone pool
-3. Run `FireIncidentSubsystem.java` — starts feeding events
-
-When all events are processed, a `.log` file is written with timing metrics and per-zone results.
+```
+1. Main.java              — Scheduler + GUI
+2. DroneSubsystem.java    — drone fleet
+3. FireIncidentSubsystem.java — event feed
+```
 
 Input files:
-- `event_file.csv` — fire events (time, zone, severity, agent required)
-- `zone_file.csv` — zone coordinates
+- `event_file.csv` — fire events with timestamps, zone IDs, severity, and agent volume
+- `zone_file.csv` — zone coordinates and boundaries
+
+A `.log` file with per-zone timing and metrics is written when the simulation ends.
 
 ## Tests
 
-Open the project in IntelliJ and run any of the JUnit test classes:
+Five JUnit 5 test suites cover the core logic:
 
 | Test class | What it covers |
 |---|---|
-| `DroneStateMachineJUnitTest` | State transitions and guard conditions |
-| `FaultDetectionJUnitTest` | Nozzle jam and stuck-mid-flight scenarios |
-| `FireIncidentSubsystemJUnitTest` | Event parsing and dispatch logic |
-| `UdpCommunicationJUnitTest` | Packet send/receive correctness |
+| `DroneStateMachineJUnitTest` | All state transitions and guard conditions |
+| `FaultDetectionJUnitTest` | Nozzle jam and stuck-mid-flight detection and recovery |
+| `FireIncidentSubsystemJUnitTest` | CSV parsing and event dispatch |
+| `UdpCommunicationJUnitTest` | Packet encoding, sending, and receiving |
 | `PacketLossDetectionJUnitTest` | Sequence number tracking and loss detection |
+
+## Sequence diagrams
+
+**System initialization**
+
+![Initialization Sequence](SYSC3303-Project-Group5/PI3SequenceDiagram_Initalization.png)
+
+**Drone deployment**
+
+![Deploy Sequence](SYSC3303-Project-Group5/PI3SequenceDiagram_Deploy.png)
+
+**Agent refill**
+
+![Refill Sequence](SYSC3303-Project-Group5/PI3SequenceDiagram_Refill.png)
 
 ## Tech
 
 - Java 17
-- POSIX sockets via `java.net.DatagramSocket`
-- JUnit 5
-- Swing for the GUI
+- `java.net.DatagramSocket` — raw UDP communication between subsystems
+- Java threads — each drone and subsystem runs concurrently
+- JUnit 5 — unit and integration testing
+- Swing — live GUI with drone tracking and fault visualization
+- Developed iteratively across 5 milestones with team code reviews each iteration
